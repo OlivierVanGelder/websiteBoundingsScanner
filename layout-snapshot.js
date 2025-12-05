@@ -47,10 +47,24 @@ async function main() {
 
   try {
     const page = await browser.newPage();
-    await page.goto(url, {
-      waitUntil: 'networkidle0',
-      timeout: 120000,
-    });
+
+    // Eventueel iets van viewport instellen
+    await page.setViewport({ width: 1440, height: 900 });
+
+    // Belangrijk verschil: gebruik domcontentloaded in plaats van networkidle0
+    try {
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 120000,
+      });
+    } catch (navErr) {
+      console.error('WARNING: navigation did not reach domcontentloaded in time:');
+      console.error(navErr.message);
+      // We proberen toch door te gaan. Vaak is de pagina wel geladen genoeg.
+    }
+
+    // Extra kleine wacht zodat fonts en layout stabiliseren
+    await page.waitForTimeout(5000);
 
     const layout = await page.evaluate((items) => {
       function boxFor(def) {
