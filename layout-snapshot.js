@@ -3,7 +3,8 @@
 
 const fs = require('fs');
 const { PNG } = require('pngjs');
-const pixelmatch = require('pixelmatch');
+const pixelmatchModule = require('pixelmatch');
+const pixelmatch = pixelmatchModule.default || pixelmatchModule;
 const { chromium } = require('@playwright/test');
 
 const REFERENCE_PATH = 'reference/home-reference.png';
