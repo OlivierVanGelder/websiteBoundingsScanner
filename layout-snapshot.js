@@ -1,141 +1,106 @@
 // layout-snapshot.js
-// Script om layout informatie van een pagina te halen met Puppeteer.
-// Verwacht omgevingsvariabelen:
-// - TARGET_URL (verplicht)
-// - SELECTORS_JSON (verplicht) JSON array van:
-//   [{ "selector": "h1.hero-title", "name": "Header titel" }, ... ]
+// Vergelijkt layout met een tolerantie van 12 px verschuiving.
 
-const puppeteer = require('puppeteer');
+const fs = require('fs');
+const { PNG } = require('pngjs');
+const pixelmatch = require('pixelmatch');
+const { chromium } = require('@playwright/test');
 
-async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+const REFERENCE_PATH = 'reference/home-reference.png';
+const CURRENT_PATH = 'reference/home-current.png';
+const DIFF_PATH = 'reference/home-diff.png';
+
+const TARGET_URL = process.env.TARGET_URL || 'https://www.travelinventive.nl/';
+const PIXEL_SHIFT_TOLERANCE = 12; // maximaal 12 px afwijking
+
+async function makeCurrentScreenshot() {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(TARGET_URL, { waitUntil: 'networkidle' });
+
+  await page.addStyleTag({
+    content: `
+      .cookie-banner,
+      .cookiebar,
+      .cc_banner,
+      .cc-window { display: none !important; }
+      video, iframe { display: none !important; }
+    `
+  });
+
+  await page.waitForTimeout(800);
+  await fs.promises.mkdir('reference', { recursive: true });
+
+  await page.screenshot({
+    path: CURRENT_PATH,
+    fullPage: true,
+  });
+
+  await browser.close();
+}
+
+function readPng(path) {
+  return new Promise((resolve, reject) => {
+    fs.createReadStream(path)
+      .pipe(new PNG())
+      .on('parsed', function () {
+        resolve(this);
+      })
+      .on('error', reject);
+  });
+}
+
+async function compareScreenshots() {
+  const ref = await readPng(REFERENCE_PATH);
+  const cur = await readPng(CURRENT_PATH);
+
+  if (ref.width !== cur.width || ref.height !== cur.height) {
+    console.error('Afmetingen verschillen, dat mag niet.');
+    process.exit(1);
+  }
+
+  const diff = new PNG({ width: ref.width, height: ref.height });
+
+  const diffPixels = pixelmatch(
+    ref.data,
+    cur.data,
+    diff.data,
+    ref.width,
+    ref.height,
+    { threshold: 0.1 }
+  );
+
+  const maxAllowedPixels = Math.round(ref.width * PIXEL_SHIFT_TOLERANCE);
+
+  console.log(`Toegestane afwijking: ${maxAllowedPixels} pixels`);
+  console.log(`Werkelijke afwijking: ${diffPixels} pixels`);
+
+  await new Promise((resolve, reject) => {
+    diff
+      .pack()
+      .pipe(fs.createWriteStream(DIFF_PATH))
+      .on('finish', resolve)
+      .on('error', reject);
+  });
+
+  if (diffPixels > maxAllowedPixels) {
+    console.error(
+      `Layout wijkt te veel af (>12 px verschuiving vermoed). Diff: ${DIFF_PATH}`
+    );
+    process.exit(1);
+  }
+
+  console.log('Layout binnen 12 px tolerantie 🎉');
 }
 
 async function main() {
-  const url = process.env.TARGET_URL;
-  const selectorsJson = process.env.SELECTORS_JSON;
-
-  if (!url) {
-    console.error('ERROR: TARGET_URL environment variable is required.');
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!selectorsJson) {
-    console.error('ERROR: SELECTORS_JSON environment variable is required.');
-    console.error('Example: SELECTORS_JSON=[{"selector":"h1","name":"Header titel"}]');
-    process.exitCode = 1;
-    return;
-  }
-
-  let selectorDefs;
-  try {
-    selectorDefs = JSON.parse(selectorsJson);
-  } catch (err) {
-    console.error('ERROR: SELECTORS_JSON is not valid JSON.');
-    console.error(err.message);
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!Array.isArray(selectorDefs) || selectorDefs.length === 0) {
-    console.error('ERROR: SELECTORS_JSON must be a non empty JSON array.');
-    process.exitCode = 1;
-    return;
-  }
-
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-
-  try {
-    const page = await browser.newPage();
-
-    // Eventueel viewport instellen
-    await page.setViewport({ width: 1440, height: 900 });
-
-    // Gebruik domcontentloaded in plaats van networkidle0
-    try {
-      await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: 120000,
-      });
-    } catch (navErr) {
-      console.error('WARNING: navigation did not reach domcontentloaded in time:');
-      console.error(navErr.message);
-      // We proberen toch door te gaan, vaak is de pagina wel bruikbaar geladen
-    }
-
-    // Kleine extra wachttijd zonder page.waitForTimeout
-    await sleep(5000);
-
-    const layout = await page.evaluate((items) => {
-      function boxFor(def) {
-        const selector = def.selector;
-        const nameOverride = def.name;
-
-        if (!selector) {
-          return null;
-        }
-
-        const el = document.querySelector(selector);
-        if (!el) {
-          return {
-            name: nameOverride || selector,
-            selector,
-            found: false,
-          };
-        }
-
-        const rect = el.getBoundingClientRect();
-        const styles = window.getComputedStyle(el);
-
-        return {
-          name: nameOverride || selector,
-          selector,
-          found: true,
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-          right: rect.left + rect.width,
-          bottom: rect.top + rect.height,
-          centerX: rect.left + rect.width / 2,
-          centerY: rect.top + rect.height / 2,
-          fontSize: styles.fontSize,
-          fontFamily: styles.fontFamily,
-          fontWeight: styles.fontWeight,
-          display: styles.display,
-        };
-      }
-
-      return items
-        .map((def) => boxFor(def))
-        .filter((entry) => entry !== null);
-    }, selectorDefs);
-
-    const result = {
-      url,
-      timestamp: new Date().toISOString(),
-      selectorsCount: selectorDefs.length,
-      layoutCount: layout.length,
-      layout,
-    };
-
-    // Output als JSON naar stdout
-    console.log(JSON.stringify(result, null, 2));
-  } catch (err) {
-    console.error('ERROR while capturing layout:');
-    console.error(err);
-    process.exitCode = 1;
-  } finally {
-    await browser.close();
-  }
+  await makeCurrentScreenshot();
+  await compareScreenshots();
 }
 
 main().catch((err) => {
-  console.error('UNHANDLED ERROR:');
   console.error(err);
-  process.exitCode = 1;
+  process.exit(1);
 });

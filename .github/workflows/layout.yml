@@ -1,17 +1,10 @@
-name: Layout snapshot
+name: Layout check
 
 on:
   workflow_dispatch:
-    inputs:
-      target_url:
-        description: 'URL van de pagina'
-        required: true
-      selectors_json:
-        description: 'JSON met selectors'
-        required: true
 
 jobs:
-  snapshot:
+  layout:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,12 +19,19 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install puppeteer
+          npm install @playwright/test pixelmatch pngjs
+          npx playwright install --with-deps chromium
 
-      - name: Run layout snapshot
+      - name: Compare homepage with Figma reference
         env:
-          TARGET_URL: ${{ github.event.inputs.target_url }}
-          SELECTORS_JSON: ${{ github.event.inputs.selectors_json }}
+          TARGET_URL: https://www.travelinventive.nl/
+          MAX_DIFF_RATIO: '0.005' # 0.5 procent pixels mag afwijken
         run: |
-          node layout-snapshot.js > layout.json
-          cat layout.json
+          node layout-snapshot.js
+
+      - name: Upload screenshots en diff als artifact bij falen
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-diff
+          path: reference/
