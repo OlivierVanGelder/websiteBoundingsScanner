@@ -2,10 +2,22 @@ name: Layout check
 
 on:
   workflow_dispatch:
+    inputs:
+      design_url:
+        description: 'URL naar Figma referentie PNG'
+        required: true
+        type: string
+      target_url:
+        description: 'URL van de live pagina'
+        required: true
+        type: string
 
 jobs:
   layout:
     runs-on: ubuntu-latest
+
+    env:
+      TARGET_URL: ${{ github.event.inputs.target_url }}
 
     steps:
       - name: Checkout
@@ -22,10 +34,12 @@ jobs:
           npm install @playwright/test pixelmatch pngjs
           npx playwright install --with-deps chromium
 
+      - name: Download Figma reference image
+        run: |
+          mkdir -p reference
+          curl -L "${{ github.event.inputs.design_url }}" -o reference/home-reference.png
+
       - name: Compare homepage with Figma reference
-        env:
-          TARGET_URL: https://www.travelinventive.nl/
-          MAX_DIFF_RATIO: '0.005' # 0.5 procent pixels mag afwijken
         run: |
           node layout-snapshot.js
 
