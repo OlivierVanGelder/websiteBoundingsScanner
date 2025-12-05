@@ -1,0 +1,37 @@
+name: Layout snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'URL van de pagina'
+        required: true
+      selectors_json:
+        description: 'JSON met selectors'
+        required: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install puppeteer
+
+      - name: Run layout snapshot
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          SELECTORS_JSON: ${{ github.event.inputs.selectors_json }}
+        run: |
+          node layout-snapshot.js > layout.json
+          cat layout.json
