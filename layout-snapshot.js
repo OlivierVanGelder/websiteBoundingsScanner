@@ -31,20 +31,36 @@ function readPng(path) {
 
 async function makeCurrentScreenshot(refWidth, refHeight) {
   const browser = await chromium.launch();
-  const page = await browser.newPage();
+
+  // Context zodat we routes kunnen instellen
+  const context = await browser.newContext();
+
+  // Blokkeer CookieCode script en templates (voorkomt de cookiebanner volledig)
+  await context.route('**://cdn.cookiecode.nl/**', route => {
+    console.log('Blocking CookieCode request:', route.request().url());
+    route.abort();
+  });
+
+  const page = await context.newPage();
 
   // Viewport gelijk aan Figma afbeelding
   await page.setViewportSize({ width: refWidth, height: refHeight });
 
   await page.goto(TARGET_URL, { waitUntil: 'networkidle' });
 
-  // Cookies, video en iframe verbergen en animaties uit
+  // Extra safeguard: verberg eventuele banners die al in de DOM staan
   await page.addStyleTag({
     content: `
       .cookie-banner,
       .cookiebar,
       .cc_banner,
-      .cc-window { display: none !important; }
+      .cc-window,
+      [id*="cookie"],
+      [class*="cookie"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }
       video, iframe { display: none !important; }
       * {
         animation: none !important;
@@ -93,7 +109,6 @@ async function compareScreenshots() {
   );
 
   // Eenvoudige tolerantie op basis van aantal pixels
-  // Voor lokale runs kun je dit aanpassen naar een percentage als je wilt
   const maxAllowedPixels = Math.round(ref.width * PIXEL_SHIFT_TOLERANCE);
 
   console.log(`Toegestane afwijking: ${maxAllowedPixels} pixels`);
