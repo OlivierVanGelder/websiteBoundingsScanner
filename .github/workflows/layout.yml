@@ -39,13 +39,22 @@ jobs:
           mkdir -p reference
           curl -L "${{ github.event.inputs.design_url }}" -o reference/home-reference.png
 
-      - name: Compare homepage with Figma reference
+      - name: Generate current screenshot (geen lokale compare)
         run: |
-          node layout-snapshot.js
+          node layout-snapshot.js --no-compare
+
+      - name: Send images to n8n webhook
+        run: |
+          curl -X POST \
+            -F "reference=@reference/home-reference.png;type=image/png" \
+            -F "current=@reference/home-current.png;type=image/png" \
+            -F "target_url=${{ github.event.inputs.target_url }}" \
+            -F "design_url=${{ github.event.inputs.design_url }}" \
+            "https://rbmedia.app.n8n.cloud/webhook/50f4ccdd-83eb-4b92-917f-d1fc8a78ef89"
 
       - name: Upload screenshots en diff als artifact bij falen
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: layout-diff
+          name: layout-screenshots
           path: reference/

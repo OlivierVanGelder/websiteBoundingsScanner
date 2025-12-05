@@ -1,5 +1,6 @@
 // layout-snapshot.js
-// Vergelijkt layout met een tolerantie van 12 px verschuiving.
+// Maakt een screenshot op basis van de Figma referentie.
+// Optioneel: vergelijkt de layout lokaal met pixelmatch (zonder webhook).
 
 const fs = require('fs');
 const { PNG } = require('pngjs');
@@ -12,7 +13,10 @@ const CURRENT_PATH = 'reference/home-current.png';
 const DIFF_PATH = 'reference/home-diff.png';
 
 const TARGET_URL = process.env.TARGET_URL || 'https://www.travelinventive.nl/';
-const PIXEL_SHIFT_TOLERANCE = 12; // maximaal 12 px afwijking
+const PIXEL_SHIFT_TOLERANCE = 12; // maximaal 12 px afwijking, alleen gebruikt in lokale compare
+
+// Flag: als --no-compare is meegegeven, alleen screenshot maken
+const onlyScreenshot = process.argv.includes('--no-compare');
 
 function readPng(path) {
   return new Promise((resolve, reject) => {
@@ -34,6 +38,7 @@ async function makeCurrentScreenshot(refWidth, refHeight) {
 
   await page.goto(TARGET_URL, { waitUntil: 'networkidle' });
 
+  // Cookies, video en iframe verbergen en animaties uit
   await page.addStyleTag({
     content: `
       .cookie-banner,
@@ -41,9 +46,14 @@ async function makeCurrentScreenshot(refWidth, refHeight) {
       .cc_banner,
       .cc-window { display: none !important; }
       video, iframe { display: none !important; }
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
     `
   });
 
+  // Even wachten tot layout stabiel is
   await page.waitForTimeout(800);
   await fs.promises.mkdir('reference', { recursive: true });
 
@@ -69,15 +79,21 @@ async function compareScreenshots() {
 
   const diff = new PNG({ width: ref.width, height: ref.height });
 
+  // Standaard pixelmatch compare
   const diffPixels = pixelmatch(
     ref.data,
     cur.data,
     diff.data,
     ref.width,
     ref.height,
-    { threshold: 0.1 }
+    {
+      threshold: 0.1,
+      includeAA: true,
+    }
   );
 
+  // Eenvoudige tolerantie op basis van aantal pixels
+  // Voor lokale runs kun je dit aanpassen naar een percentage als je wilt
   const maxAllowedPixels = Math.round(ref.width * PIXEL_SHIFT_TOLERANCE);
 
   console.log(`Toegestane afwijking: ${maxAllowedPixels} pixels`);
@@ -98,7 +114,7 @@ async function compareScreenshots() {
     process.exit(1);
   }
 
-  console.log('Layout binnen 12 px tolerantie.');
+  console.log('Layout binnen tolerantie.');
 }
 
 async function main() {
@@ -113,8 +129,15 @@ async function main() {
     `Referentie afmetingen: ${refMeta.width} x ${refMeta.height}`
   );
 
+  // Altijd screenshot maken
   await makeCurrentScreenshot(refMeta.width, refMeta.height);
-  await compareScreenshots();
+
+  // Alleen lokaal vergelijken als --no-compare niet is meegegeven
+  if (!onlyScreenshot) {
+    await compareScreenshots();
+  } else {
+    console.log('Alleen screenshot gemaakt, geen lokale vergelijking uitgevoerd.');
+  }
 }
 
 main().catch((err) => {
