@@ -13,11 +13,24 @@ const DIFF_PATH = 'reference/home-diff.png';
 const TARGET_URL = process.env.TARGET_URL || 'https://www.travelinventive.nl/';
 const PIXEL_SHIFT_TOLERANCE = 12; // maximaal 12 px afwijking
 
-async function makeCurrentScreenshot() {
+function readPng(path) {
+  return new Promise((resolve, reject) => {
+    fs.createReadStream(path)
+      .pipe(new PNG())
+      .on('parsed', function () {
+        resolve(this);
+      })
+      .on('error', reject);
+  });
+}
+
+async function makeCurrentScreenshot(refWidth, refHeight) {
   const browser = await chromium.launch();
   const page = await browser.newPage();
 
-  await page.setViewportSize({ width: 1440, height: 900 });
+  // Viewport gelijk aan Figma afbeelding
+  await page.setViewportSize({ width: refWidth, height: refHeight });
+
   await page.goto(TARGET_URL, { waitUntil: 'networkidle' });
 
   await page.addStyleTag({
@@ -33,23 +46,13 @@ async function makeCurrentScreenshot() {
   await page.waitForTimeout(800);
   await fs.promises.mkdir('reference', { recursive: true });
 
+  // Geen fullPage zodat de screenshot precies viewport formaat heeft
   await page.screenshot({
     path: CURRENT_PATH,
-    fullPage: true,
+    fullPage: false,
   });
 
   await browser.close();
-}
-
-function readPng(path) {
-  return new Promise((resolve, reject) => {
-    fs.createReadStream(path)
-      .pipe(new PNG())
-      .on('parsed', function () {
-        resolve(this);
-      })
-      .on('error', reject);
-  });
 }
 
 async function compareScreenshots() {
@@ -57,7 +60,9 @@ async function compareScreenshots() {
   const cur = await readPng(CURRENT_PATH);
 
   if (ref.width !== cur.width || ref.height !== cur.height) {
-    console.error('Afmetingen verschillen, dat mag niet.');
+    console.error(
+      `Afmetingen verschillen. Referentie ${ref.width}x${ref.height}, huidige ${cur.width}x${cur.height}.`
+    );
     process.exit(1);
   }
 
@@ -87,16 +92,27 @@ async function compareScreenshots() {
 
   if (diffPixels > maxAllowedPixels) {
     console.error(
-      `Layout wijkt te veel af (>12 px verschuiving vermoed). Diff: ${DIFF_PATH}`
+      `Layout wijkt te veel af. Diff staat in ${DIFF_PATH}.`
     );
     process.exit(1);
   }
 
-  console.log('Layout binnen 12 px tolerantie 🎉');
+  console.log('Layout binnen 12 px tolerantie.');
 }
 
 async function main() {
-  await makeCurrentScreenshot();
+  // Eerst referentie inlezen om breedte en hoogte te weten
+  if (!fs.existsSync(REFERENCE_PATH)) {
+    console.error(`Referentiebestand niet gevonden op ${REFERENCE_PATH}.`);
+    process.exit(1);
+  }
+
+  const refMeta = await readPng(REFERENCE_PATH);
+  console.log(
+    `Referentie afmetingen: ${refMeta.width} x ${refMeta.height}`
+  );
+
+  await makeCurrentScreenshot(refMeta.width, refMeta.height);
   await compareScreenshots();
 }
 
