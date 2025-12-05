@@ -7,6 +7,10 @@
 
 const puppeteer = require('puppeteer');
 
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main() {
   const url = process.env.TARGET_URL;
   const selectorsJson = process.env.SELECTORS_JSON;
@@ -48,10 +52,10 @@ async function main() {
   try {
     const page = await browser.newPage();
 
-    // Eventueel iets van viewport instellen
+    // Eventueel viewport instellen
     await page.setViewport({ width: 1440, height: 900 });
 
-    // Belangrijk verschil: gebruik domcontentloaded in plaats van networkidle0
+    // Gebruik domcontentloaded in plaats van networkidle0
     try {
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
@@ -60,11 +64,11 @@ async function main() {
     } catch (navErr) {
       console.error('WARNING: navigation did not reach domcontentloaded in time:');
       console.error(navErr.message);
-      // We proberen toch door te gaan. Vaak is de pagina wel geladen genoeg.
+      // We proberen toch door te gaan, vaak is de pagina wel bruikbaar geladen
     }
 
-    // Extra kleine wacht zodat fonts en layout stabiliseren
-    await page.waitForTimeout(5000);
+    // Kleine extra wachttijd zonder page.waitForTimeout
+    await sleep(5000);
 
     const layout = await page.evaluate((items) => {
       function boxFor(def) {
@@ -119,7 +123,7 @@ async function main() {
       layout,
     };
 
-    // Output als nette JSON naar stdout
+    // Output als JSON naar stdout
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
     console.error('ERROR while capturing layout:');
