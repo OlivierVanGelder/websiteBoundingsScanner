@@ -18,6 +18,7 @@ jobs:
 
     env:
       TARGET_URL: ${{ github.event.inputs.target_url }}
+      SLICE_COUNT: 10
 
     steps:
       - name: Checkout
@@ -31,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install @playwright/test pixelmatch pngjs
+          npm install @playwright/test pngjs
           npx playwright install --with-deps chromium
 
       - name: Download Figma reference image
@@ -39,22 +40,40 @@ jobs:
           mkdir -p reference
           curl -L "${{ github.event.inputs.design_url }}" -o reference/home-reference.png
 
-      - name: Generate current screenshot (geen lokale compare)
+      - name: Generate current screenshot and slices
         run: |
-          node layout-snapshot.js --no-compare
+          node layout-snapshot.js
 
-      - name: Send images to n8n webhook
+      - name: Send slices to n8n webhook
         run: |
-          curl -X POST \
-            -F "reference=@reference/home-reference.png;type=image/png" \
-            -F "current=@reference/home-current.png;type=image/png" \
+          curl -s -X POST \
+            -F "reference_slice_1=@reference/reference_slice-1.png;type=image/png" \
+            -F "reference_slice_2=@reference/reference_slice-2.png;type=image/png" \
+            -F "reference_slice_3=@reference/reference_slice-3.png;type=image/png" \
+            -F "reference_slice_4=@reference/reference_slice-4.png;type=image/png" \
+            -F "reference_slice_5=@reference/reference_slice-5.png;type=image/png" \
+            -F "reference_slice_6=@reference/reference_slice-6.png;type=image/png" \
+            -F "reference_slice_7=@reference/reference_slice-7.png;type=image/png" \
+            -F "reference_slice_8=@reference/reference_slice-8.png;type=image/png" \
+            -F "reference_slice_9=@reference/reference_slice-9.png;type=image/png" \
+            -F "reference_slice_10=@reference/reference_slice-10.png;type=image/png" \
+            -F "current_slice_1=@reference/current_slice-1.png;type=image/png" \
+            -F "current_slice_2=@reference/current_slice-2.png;type=image/png" \
+            -F "current_slice_3=@reference/current_slice-3.png;type=image/png" \
+            -F "current_slice_4=@reference/current_slice-4.png;type=image/png" \
+            -F "current_slice_5=@reference/current_slice-5.png;type=image/png" \
+            -F "current_slice_6=@reference/current_slice-6.png;type=image/png" \
+            -F "current_slice_7=@reference/current_slice-7.png;type=image/png" \
+            -F "current_slice_8=@reference/current_slice-8.png;type=image/png" \
+            -F "current_slice_9=@reference/current_slice-9.png;type=image/png" \
+            -F "current_slice_10=@reference/current_slice-10.png;type=image/png" \
             -F "target_url=${{ github.event.inputs.target_url }}" \
             -F "design_url=${{ github.event.inputs.design_url }}" \
             "https://rbmedia.app.n8n.cloud/webhook/50f4ccdd-83eb-4b92-917f-d1fc8a78ef89"
 
-      - name: Upload screenshots en diff als artifact bij falen
+      - name: Upload reference map als artifact bij falen
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: layout-screenshots
+          name: layout-slices
           path: reference/
