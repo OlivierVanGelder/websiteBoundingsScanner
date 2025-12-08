@@ -1,6 +1,7 @@
 // layout-snapshot.js
 // Maakt een screenshot op basis van de Figma referentie
-// en splitst zowel referentie als huidige pagina in 10 slices.
+// of gebruikt een handmatig geüploade current-afbeelding bij TARGET_URL=manual
+// en splitst zowel referentie als huidige pagina in slices.
 
 const fs = require('fs');
 const { PNG } = require('pngjs');
@@ -11,6 +12,7 @@ const CURRENT_PATH = 'reference/home-current.png';
 
 const TARGET_URL = process.env.TARGET_URL || 'https://www.travelinventive.nl/';
 const SLICE_COUNT = parseInt(process.env.SLICE_COUNT || '10', 10);
+const MANUAL_MODE = TARGET_URL === 'manual';
 
 function readPng(path) {
   return new Promise((resolve, reject) => {
@@ -83,6 +85,9 @@ function sliceImage(sourcePath, outputPrefix, parts) {
           `Slicing ${sourcePath} (${width}x${height}) in ${parts} delen van ongeveer ${sliceHeight} px hoog`
         );
 
+        let pending = 0;
+        let hadSlices = false;
+
         for (let i = 0; i < parts; i++) {
           const yStart = i * sliceHeight;
           const yEnd = Math.min(yStart + sliceHeight, height);
@@ -91,6 +96,9 @@ function sliceImage(sourcePath, outputPrefix, parts) {
           if (currentSliceHeight <= 0) {
             continue;
           }
+
+          hadSlices = true;
+          pending += 1;
 
           const png = new PNG({ width, height: currentSliceHeight });
 
@@ -104,16 +112,24 @@ function sliceImage(sourcePath, outputPrefix, parts) {
           const index = i + 1;
           const filename = `${outputPrefix}-${index}.png`;
 
-          png
+          const stream = png
             .pack()
-            .pipe(fs.createWriteStream(filename))
-            .on('finish', () => {
-              console.log(`Slice opgeslagen: ${filename}`);
-            })
-            .on('error', reject);
+            .pipe(fs.createWriteStream(filename));
+
+          stream.on('finish', () => {
+            console.log(`Slice opgeslagen: ${filename}`);
+            pending -= 1;
+            if (pending === 0) {
+              resolve();
+            }
+          });
+
+          stream.on('error', reject);
         }
 
-        resolve();
+        if (!hadSlices) {
+          resolve();
+        }
       })
       .on('error', reject);
   });
@@ -130,9 +146,20 @@ async function main() {
     `Referentie afmetingen: ${refMeta.width} x ${refMeta.height}`
   );
 
-  await makeCurrentScreenshot(refMeta.width, refMeta.height);
+  if (MANUAL_MODE) {
+    console.log('Manual mode actief, gebruik bestaande current afbeelding in reference map.');
 
-  // Slices maken van zowel referentie als huidige screenshot
+    if (!fs.existsSync(CURRENT_PATH)) {
+      console.error(
+        `Manual mode vereist een bestaand live screenshot op ${CURRENT_PATH}, maar dat bestand is niet gevonden.`
+      );
+      process.exit(1);
+    }
+  } else {
+    console.log(`Maak live screenshot van ${TARGET_URL}.`);
+    await makeCurrentScreenshot(refMeta.width, refMeta.height);
+  }
+
   await sliceImage(REFERENCE_PATH, 'reference/reference_slice', SLICE_COUNT);
   await sliceImage(CURRENT_PATH, 'reference/current_slice', SLICE_COUNT);
 
